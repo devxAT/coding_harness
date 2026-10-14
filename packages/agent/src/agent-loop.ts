@@ -129,13 +129,12 @@ async function runLoop(
     (await config?.getSteeringMessages?.()) || [];
 
   // outerloop is handling any queued follow up messages given by user
-  // still its there for future use
   while (true) {
     let hasMoreToolCalls = true;
     let steeringAfterTools: AgentMessage[] | null = null;
 
     // Inner loop -> process tool calls and steering messages
-    while (hasMoreToolCalls && pendingMessages.length > 0) {
+    while (hasMoreToolCalls || pendingMessages.length > 0) {
       if (!firstTurn) {
         stream.push({ type: "iteration_start" });
       } else {
@@ -415,10 +414,12 @@ async function executeToolCalls(
     if (getSteeringMessages) {
       const steeringMsgs = await getSteeringMessages();
       if (steeringMsgs.length > 0) {
+        steeringMessages = steeringMsgs;
         const remainingToolCalls = toolCalls.slice(i + 1);
         for (const skipCall of remainingToolCalls) {
           results.push(skipToolCall(skipCall, stream));
         }
+        break;
       }
     }
   }
