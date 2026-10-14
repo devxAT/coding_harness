@@ -1,8 +1,6 @@
 # coding_harness
 
-A coding agent (read / write / edit / bash tools + LLM loop) built by following pi v0.35.0
-(`c:\development\harnesses\pi_harness`, branch `v035-base`) as a reference. Read for structure,
-do not copy wholesale. Roadmap: `pi_harness/coding_harness-TODO.md`.
+A coding agent (read / write / edit / bash tools + LLM loop)
 
 ## Layout
 
@@ -17,6 +15,7 @@ Dependency direction: `cli -> agent -> ai_providers`. Packages import each other
 they resolve through each package's `dist/`, so run `npm run build` after changing a lower package.
 
 ### ai_providers/src
+
 - `types.ts` Message / AssistantMessage / ToolCall / Usage / ModelInfo / stream event types
 - `providers/anthropic.ts` `anthropicStream`, `buildParams`, message + tool conversion
 - `stream.ts` `stream()` / `complete()` (always Anthropic for now)
@@ -27,6 +26,7 @@ they resolve through each package's `dist/`, so run `npm run build` after changi
 - `faux.ts` fully commented out; tests use a scripted stream function instead
 
 ### agent/src
+
 - `agent-loop.ts` `agentLoop` / `retryAgentLoop`: stream reply, run tool calls sequentially,
   steering + follow-up queues. Events: `agent_start/end`, `iteration_start/end` (pi calls it turn),
   `message_*`, `tool_execution_start/update/end`
@@ -40,18 +40,21 @@ they resolve through each package's `dist/`, so run `npm run build` after changi
 - `utils/shellUtils.ts` Git Bash lookup on Windows, `killProcessTree`; `utils/pathUtils.ts`
 
 ### cli/src
+
 - `repl.ts` `Repl`: readline loop, event rendering, steering, Ctrl+C, `/compact` `/reset` `/exit`.
   Takes injectable `input` / `output` streams (used by the tests)
 - `main.ts` argument parsing and wiring. Needs `ANTHROPIC_API_KEY`
 - `test/e2e.test.ts` scripted-provider tests
 
 ## Commands
+
 - `npm run check` typecheck everything (run after code changes)
 - `npm run build` build all packages (needed before `npm test` and before running the binary)
 - `npm test --workspace @coding-harness/cli` end-to-end tests, no network, no API key
 - `node packages/cli/dist/main.js [prompt]`
 
 ## Conventions
+
 - Tool schemas are **zod 4**. `zod-to-json-schema` only understands zod 3; the Anthropic provider
   uses `z.toJSONSchema` instead (the `zod-to-json-schema` dependency is now unused)
 - Tools are factories bound to a cwd and **throw** on error; the loop turns a throw into an
@@ -60,11 +63,13 @@ they resolve through each package's `dist/`, so run `npm run build` after changi
 - Message types are exactly `user | assistant | toolResult` (no custom message kinds)
 
 ## Status
+
 Done: provider layer, loop, tools (read/write/edit/bash), `Agent`, system prompt, CLI (Step 11),
 compaction (Step 12).
 
 **Deliberately skipped: session persistence (TODO Step 10).** The conversation lives only in
 `agent.state.messages`; quitting loses it, and there is no `--continue`. Consequences:
+
 - compaction rewrites the in-memory history (`agent.replaceMessages`) and stores the summary as a
   marked user message (see `createSummaryMessage` / `getSummaryText`), not as a session entry
 - when sessions are added: append on `message_end`, load at startup into `agent.replaceMessages`,
@@ -72,6 +77,7 @@ compaction (Step 12).
   Reference: `pi_harness/pi-SESSION.md`
 
 ## Known gaps
+
 - Not verified against the real Anthropic API (no key was available when written): everything
   was tested with a scripted provider. First real run should be treated as the real test
 - No guard for `stopReason === "length"` (truncated tool-call JSON): tool calls from a truncated
@@ -87,6 +93,7 @@ compaction (Step 12).
   as seconds), and the schema description says "bash" while Windows runs Git Bash
 
 ## Rules for working here
+
 - Read a file in full before editing it; match the surrounding style (2-space indent, double quotes)
 - No `any` unless necessary; top-level imports only
 - Do not commit unless asked

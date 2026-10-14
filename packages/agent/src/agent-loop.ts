@@ -129,7 +129,6 @@ async function runLoop(
     (await config?.getSteeringMessages?.()) || [];
 
   // outerloop is handling any queued follow up messages given by user
-  // still its there for future use
   while (true) {
     let hasMoreToolCalls = true;
     let steeringAfterTools: AgentMessage[] | null = null;
