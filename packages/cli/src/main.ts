@@ -18,7 +18,6 @@ const HELP = `coding-harness [options] [prompt]
   prompt             first message; the session continues interactively afterwards
   -p, --print        run the prompt, print the answer, exit
   -m, --model <id>   model id (default: agent default)
-  --no-compact       disable automatic context compaction
   -h, --help         show this help
 
 In the session:
@@ -132,7 +131,6 @@ async function main(): Promise<number> {
   const repl = new Repl({
     agent,
     getApiKey,
-    compaction: { enabled: args.compact },
   });
 
   if (args.print) {
