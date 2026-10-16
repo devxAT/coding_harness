@@ -3,14 +3,11 @@ import type { Readable, Writable } from "node:stream";
 import {
   Agent,
   AgentEvent,
-  AutoCompaction,
-  CompactionSettings,
 } from "@coding-harness/agent";
 
 export interface ReplOptions {
   agent: Agent;
   getApiKey: (provider: string) => string | undefined;
-  compaction?: Partial<CompactionSettings>;
   input?: Readable;
   output?: Writable;
 }
@@ -54,7 +51,6 @@ function resultText(result: unknown): string {
  */
 export class Repl {
   private agent: Agent;
-  private compaction: AutoCompaction;
   private input: Readable;
   private output: Writable;
   private color: boolean;
@@ -66,10 +62,9 @@ export class Repl {
   private forcedExit = false;
   private closed = false;
   private atLineStart = true;
-  private compactionFailed = false;
   /** per tool call: bash output already printed, so partial updates only add the new tail */
   private streamedOutput = new Map<string, string>();
-  /** lines typed while running but not streaming (e.g. during compaction) */
+  /** lines typed while running but not streaming */
   private queued: string[] = [];
 
   constructor(options: ReplOptions) {
@@ -78,30 +73,10 @@ export class Repl {
     this.output = options.output ?? process.stdout;
     this.color = Boolean((this.output as { isTTY?: boolean }).isTTY);
 
-    this.compaction = new AutoCompaction({
-      agent: this.agent,
-      getApiKey: options.getApiKey,
-      settings: options.compaction,
-      onStart: (reason) =>
-        this.writeLine(this.dim(`[compacting context (${reason})...]`)),
-      onEnd: (result, error) => {
-        if (error) {
-          this.compactionFailed = true;
-          this.writeLine(this.red(`Compaction failed: ${error.message}`));
-        } else if (result) {
-          this.writeLine(
-            this.dim(
-              `[compacted ~${result.tokensBefore} tokens, kept ${result.messages.length - 1} recent messages]`,
-            ),
-          );
-        }
-      },
-    });
-
     this.agent.subscribe((event) => this.render(event));
   }
 
-  // ---- output helpers ----------------------------------------------------
+  //helpers
 
   private write(text: string) {
     if (text.length === 0) return;
@@ -126,7 +101,7 @@ export class Repl {
     return this.color ? `\x1b[31m${text}\x1b[39m` : text;
   }
 
-  // ---- agent events ------------------------------------------------------
+  // agent events
 
   private render(event: AgentEvent) {
     switch (event.type) {
@@ -182,14 +157,13 @@ export class Repl {
     }
   }
 
-  // ---- running prompts ---------------------------------------------------
+  // running prompt
 
-  /** Run one prompt to completion (plus compaction). Returns false if it ended in error or abort. */
+  /** Run one prompt to completion. Returns false if it ended in error or abort. */
   async runPrompt(text: string): Promise<boolean> {
     this.running = true;
     try {
       await this.agent.prompt(text);
-      await this.compaction.afterRun();
       return this.reportOutcome();
     } finally {
       this.running = false;
@@ -222,16 +196,6 @@ export class Repl {
       this.writeLine(this.dim("[conversation cleared]"));
       return;
     }
-    if (line === "/compact" || line.startsWith("/compact ")) {
-      this.compactionFailed = false;
-      const result = await this.compaction.compactNow(
-        line.slice("/compact".length).trim() || undefined,
-      );
-      if (!result && !this.compactionFailed) {
-        this.writeLine(this.dim("[nothing to compact yet]"));
-      }
-      return;
-    }
     await this.runPrompt(line);
   }
 
@@ -261,7 +225,6 @@ export class Repl {
     if (this.running && !this.abortRequested) {
       this.abortRequested = true;
       this.agent.abort();
-      this.compaction.abort();
       this.writeLine(this.dim("[aborting, press Ctrl+C again to exit]"));
       return;
     }
