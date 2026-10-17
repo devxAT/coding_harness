@@ -17,7 +17,7 @@ const HELP = `coding-harness [options] [prompt]
 
   prompt             first message; the session continues interactively afterwards
   -p, --print        run the prompt, print the answer, exit
-  -m, --model <id>   model id (default: agent default)
+  -m, --model <id>   model id, e.g. google/gemini-2.5-flash, xai/grok-3, mistral/codestral-latest
   -h, --help         show this help
 
 In the session:
@@ -27,13 +27,23 @@ In the session:
   /exit              quit
   Ctrl+C             abort the current run; press again to exit
 
-Default model is openrouter/openai/gpt-4o-mini and needs OPENROUTER_API_KEY.
-Other keys: OPENAI_API_KEY (openai), ANTHROPIC_API_KEY (anthropic).`;
+Default model is openrouter/openai/gpt-4o-mini.
+
+Required env vars by provider:
+  ANTHROPIC_API_KEY   anthropic/*
+  GEMINI_API_KEY      google/*
+  OPENAI_API_KEY      openai/*
+  OPENROUTER_API_KEY  openrouter/*
+  XAI_API_KEY         xai/*
+  MISTRAL_API_KEY     mistral/*`;
 
 const API_KEY_ENV: Record<string, string> = {
-  openrouter: "OPENROUTER_API_KEY",
-  openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
+  google: "GEMINI_API_KEY",
+  openai: "OPENAI_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  xai: "XAI_API_KEY",
+  mistral: "MISTRAL_API_KEY",
 };
 
 function findModel(spec: string) {
