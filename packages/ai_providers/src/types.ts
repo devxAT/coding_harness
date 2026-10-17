@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { AssistantMessageEventStream } from "./utils/event-stream.js";
 
-export type KnownProvider = "openai" | "anthropic" | "google";
+export type KnownProvider =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "openrouter"
+  | "xai"
+  | "mistral";
 export type ProviderId = KnownProvider | string;
 
 /**
@@ -12,6 +18,31 @@ export interface ModelCost {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+}
+
+/**
+ * Describes per-vendor quirks for OpenAI-compatible endpoints.
+ * Used by openaiStream to adapt request parameters and message shapes.
+ */
+export interface OpenAICompat {
+  /** Whether the endpoint accepts `store: false` (default true) */
+  supportsStore?: boolean;
+  /** Whether reasoning models should use the `developer` role for system prompt */
+  supportsDeveloperRole?: boolean;
+  /** Whether the endpoint accepts `reasoning_effort` (default true) */
+  supportsReasoningEffort?: boolean;
+  /**
+   * Which token-limit field to use. Newer OpenAI models use `max_completion_tokens`;
+   * Mistral and most compat servers only understand `max_tokens`.
+   */
+  maxTokensField?: "max_tokens" | "max_completion_tokens";
+  /** Whether tool result messages must include a `name` field (Mistral) */
+  requiresToolResultName?: boolean;
+  /**
+   * Whether tool call IDs must be exactly 9 alphanumeric characters (Mistral).
+   * When true, IDs are padded/truncated accordingly.
+   */
+  requiresMistralToolIds?: boolean;
 }
 
 /**
@@ -28,7 +59,10 @@ export interface ModelInfo {
   maxTokens: number;
   cost: ModelCost;
 
-  /** TODO: add compatibilities like longCacheRetention, etc. */
+  /** Extra HTTP headers forwarded verbatim to the provider (e.g. OpenRouter's HTTP-Referer) */
+  headers?: Record<string, string>;
+  /** OpenAI-compat quirks; when absent, sensible defaults are inferred from baseUrl */
+  compat?: OpenAICompat;
 }
 
 // /**
