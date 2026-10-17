@@ -355,7 +355,7 @@ export const buildOpenAIParams = (
     params.temperature = options.temperature;
   }
 
-  if (model.reasoning && options?.resoning) {
+  if (model.reasoning && options?.resoning && (options.resoning as string) !== "off") {
     const isOpenRouter = model.baseUrl.includes("openrouter.ai");
     if (isOpenRouter) {
       // OpenRouter wraps reasoning under a nested object.

@@ -272,8 +272,10 @@ export class Agent {
     this._state.streamMessage = null;
     this._state.error = undefined;
 
-    const reasoning: ReasoningEffort | undefined = this._state
-      .thinkingLevel as ReasoningEffort;
+    const reasoning: ReasoningEffort | undefined =
+      this._state.thinkingLevel !== "off"
+        ? (this._state.thinkingLevel as ReasoningEffort)
+        : undefined;
 
     const context: AgentContext = {
       systemPrompt: this._state.systemPrompt,

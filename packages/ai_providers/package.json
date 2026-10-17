@@ -19,7 +19,7 @@
     "clean": "shx rm -rf dist",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"No test specified\""
+    "test": "tsx test/providers.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.91.1",
