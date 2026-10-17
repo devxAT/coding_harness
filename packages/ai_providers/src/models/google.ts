@@ -1,0 +1,51 @@
+import { ModelInfo } from "../types.js";
+
+export const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+
+// TODO: verify ids and prices against Google's current model list
+export const GOOGLE_MODELS: ModelInfo[] = [
+  {
+    id: "gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    baseUrl: GEMINI_BASE_URL,
+    provider: "google",
+    input: ["text", "image"],
+    reasoning: true,
+    contextWindow: 1_048_576,
+    maxTokens: 65_536,
+    cost: { input: 1.25, output: 10, cacheRead: 0.31, cacheWrite: 0 },
+  },
+  {
+    id: "gemini-2.5-flash",
+    name: "Gemini 2.5 Flash",
+    baseUrl: GEMINI_BASE_URL,
+    provider: "google",
+    input: ["text", "image"],
+    reasoning: true,
+    contextWindow: 1_048_576,
+    maxTokens: 65_536,
+    cost: { input: 0.15, output: 0.6, cacheRead: 0.037, cacheWrite: 0 },
+  },
+  {
+    id: "gemini-2.0-flash",
+    name: "Gemini 2.0 Flash",
+    baseUrl: GEMINI_BASE_URL,
+    provider: "google",
+    input: ["text", "image"],
+    reasoning: false,
+    contextWindow: 1_048_576,
+    maxTokens: 8_192,
+    cost: { input: 0.1, output: 0.4, cacheRead: 0.025, cacheWrite: 0 },
+  },
+  {
+    id: "gemini-2.0-flash-lite",
+    name: "Gemini 2.0 Flash Lite",
+    baseUrl: GEMINI_BASE_URL,
+    provider: "google",
+    input: ["text", "image"],
+    reasoning: false,
+    contextWindow: 1_048_576,
+    maxTokens: 8_192,
+    cost: { input: 0.075, output: 0.3, cacheRead: 0, cacheWrite: 0 },
+  },
+];

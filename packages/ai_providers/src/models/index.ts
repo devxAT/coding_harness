@@ -1,11 +1,13 @@
 import { ModelInfo } from "../types.js";
 import { ANTHROPIC_MODELS } from "./anthropic.js";
+import { GOOGLE_MODELS } from "./google.js";
 import { MISTRAL_MODELS } from "./mistral.js";
 import { OPENAI_MODELS, OPENROUTER_MODELS } from "./openai.js";
 import { XAI_MODELS } from "./xai.js";
 
 export const MODELS = {
   anthropic: ANTHROPIC_MODELS,
+  google: GOOGLE_MODELS,
   openai: OPENAI_MODELS,
   openrouter: OPENROUTER_MODELS,
   xai: XAI_MODELS,
