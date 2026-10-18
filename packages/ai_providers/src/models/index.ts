@@ -4,7 +4,7 @@ import { GOOGLE_MODELS } from "./google.js";
 import { OPENAI_MODELS } from "./openai.js";
 
 export { MISTRAL_MODELS } from "./mistral.js";
-export { OPENROUTER_MODELS } from "./openai.js";
+export { OPENROUTER_MODELS } from "./openRouter.js";
 export { XAI_MODELS } from "./xai.js";
 
 export const MODELS = {
