@@ -1,17 +1,16 @@
 import { ModelInfo } from "../types.js";
 import { ANTHROPIC_MODELS } from "./anthropic.js";
 import { GOOGLE_MODELS } from "./google.js";
-import { MISTRAL_MODELS } from "./mistral.js";
-import { OPENAI_MODELS, OPENROUTER_MODELS } from "./openai.js";
-import { XAI_MODELS } from "./xai.js";
+import { OPENAI_MODELS } from "./openai.js";
+
+export { MISTRAL_MODELS } from "./mistral.js";
+export { OPENROUTER_MODELS } from "./openai.js";
+export { XAI_MODELS } from "./xai.js";
 
 export const MODELS = {
   anthropic: ANTHROPIC_MODELS,
   google: GOOGLE_MODELS,
   openai: OPENAI_MODELS,
-  openrouter: OPENROUTER_MODELS,
-  xai: XAI_MODELS,
-  mistral: MISTRAL_MODELS,
 };
 
 export const modelRegistry: Map<string, Map<string, ModelInfo>> = new Map();

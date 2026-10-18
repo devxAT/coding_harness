@@ -23,14 +23,12 @@ function test(name: string, fn: () => void | Promise<void>) {
 
 // ── 1. Model Registry Tests ──────────────────────────────────────────────────
 
-test("registry: all 6 providers are registered", () => {
+test("registry: all 3 active providers are registered", () => {
   const providers = getProviders();
+  assert.equal(providers.length, 3);
   assert.ok(providers.includes("anthropic"), "missing anthropic");
   assert.ok(providers.includes("google"), "missing google");
   assert.ok(providers.includes("openai"), "missing openai");
-  assert.ok(providers.includes("openrouter"), "missing openrouter");
-  assert.ok(providers.includes("xai"), "missing xai");
-  assert.ok(providers.includes("mistral"), "missing mistral");
 });
 
 test("registry: model lookups return valid models", () => {
@@ -39,18 +37,14 @@ test("registry: model lookups return valid models", () => {
   assert.equal(gemini.provider, "google");
   assert.equal(gemini.reasoning, true);
 
-  const grok = getModel("xai", "grok-3");
-  assert.equal(grok.id, "grok-3");
-  assert.equal(grok.provider, "xai");
+  const claude = getModel("anthropic", "claude-haiku-4-5-20251001");
+  assert.equal(claude.id, "claude-haiku-4-5-20251001");
+  assert.equal(claude.provider, "anthropic");
 
-  const codestral = getModel("mistral", "codestral-latest");
-  assert.equal(codestral.id, "codestral-latest");
-  assert.equal(codestral.provider, "mistral");
-
-  const r1 = getModel("openrouter", "deepseek/deepseek-r1");
-  assert.equal(r1.id, "deepseek/deepseek-r1");
-  assert.equal(r1.provider, "openrouter");
-  assert.equal(r1.reasoning, true);
+  const gpt = getModel("openai", "gpt-4o");
+  assert.equal(gpt.id, "gpt-4o");
+  assert.equal(gpt.provider, "openai");
+  assert.equal(gpt.reasoning, false);
 });
 
 // ── 2. Compatibility Detection Tests ─────────────────────────────────────────
@@ -102,7 +96,7 @@ test("compat: explicit model overrides take precedence", () => {
 // ── 3. Mistral Payload Normalization Tests ───────────────────────────────────
 
 test("mistral: normalizes tool IDs, empty content, and tool result names", () => {
-  const model = getModel("mistral", "mistral-large-latest");
+  const model = MISTRAL_MODELS.find((m) => m.id === "mistral-large-latest")!;
   const testTool = {
     name: "bash",
     description: "run bash",
@@ -175,7 +169,7 @@ test("mistral: normalizes tool IDs, empty content, and tool result names", () =>
 // ── 4. xAI Payload Tests ─────────────────────────────────────────────────────
 
 test("xai: omits store and reasoning_effort", () => {
-  const model = getModel("xai", "grok-3-mini");
+  const model = XAI_MODELS.find((m) => m.id === "grok-3-mini")!;
   const params = buildOpenAIParams(
     model,
     {
@@ -192,7 +186,7 @@ test("xai: omits store and reasoning_effort", () => {
 // ── 5. OpenRouter Payload Tests ──────────────────────────────────────────────
 
 test("openrouter: formats reasoning as nested object and injects empty tools when history had tools", () => {
-  const model = getModel("openrouter", "deepseek/deepseek-r1");
+  const model = OPENROUTER_MODELS.find((m) => m.id === "deepseek/deepseek-r1")!;
   const params = buildOpenAIParams(
     model,
     {
@@ -224,17 +218,17 @@ test("openrouter: formats reasoning as nested object and injects empty tools whe
 
 test("stream: routes to correct provider function without throwing synchronously", () => {
   const gemini = getModel("google", "gemini-2.5-flash");
-  const grok = getModel("xai", "grok-3");
-  const mistral = getModel("mistral", "mistral-large-latest");
+  const haiku = getModel("anthropic", "claude-haiku-4-5-20251001");
+  const gpt = getModel("openai", "gpt-4o");
 
   // Each should return an AssistantMessageEventStream
   const s1 = stream(gemini, { messages: [] });
   assert.ok(s1 && typeof s1[Symbol.asyncIterator] === "function");
 
-  const s2 = stream(grok, { messages: [] });
+  const s2 = stream(haiku, { messages: [] });
   assert.ok(s2 && typeof s2[Symbol.asyncIterator] === "function");
 
-  const s3 = stream(mistral, { messages: [] });
+  const s3 = stream(gpt, { messages: [] });
   assert.ok(s3 && typeof s3[Symbol.asyncIterator] === "function");
 });
 

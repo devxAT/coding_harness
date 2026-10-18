@@ -63,7 +63,7 @@ function defaultConvertToLlm(messages: AgentMessage[]): Message[] {
 export class Agent {
   private _state: AgentState = {
     systemPrompt: "",
-    model: getModel("openrouter", "openai/gpt-4o-mini"),
+    model: getModel("anthropic", "claude-haiku-4-5-20251001"),
     thinkingLevel: "off",
     tools: [],
     messages: [],

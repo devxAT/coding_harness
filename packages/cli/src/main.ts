@@ -12,53 +12,30 @@ import {
   loadProjectContext,
 } from "@coding-harness/agent";
 import { Repl } from "./repl.js";
+import { API_KEY_ENV, findModel } from "./model-selector.js";
 
 const HELP = `coding-harness [options] [prompt]
 
   prompt             first message; the session continues interactively afterwards
   -p, --print        run the prompt, print the answer, exit
-  -m, --model <id>   model id, e.g. google/gemini-2.5-flash, xai/grok-3, mistral/codestral-latest
+  -m, --model <id>   model id, e.g. google/gemini-2.5-flash, openai/gpt-4o, anthropic/claude-3-7-sonnet-latest
   -h, --help         show this help
 
 In the session:
   <text>             send a message; while the agent runs it steers the agent instead
+  /models            browse and select a model interactively
+  /model <id>        switch to a specific model directly
   /compact [focus]   compact the context now
   /reset             clear the conversation
   /exit              quit
   Ctrl+C             abort the current run; press again to exit
 
-Default model is openrouter/openai/gpt-4o-mini.
+Default model is anthropic/claude-haiku-4-5-20251001.
 
 Required env vars by provider:
   ANTHROPIC_API_KEY   anthropic/*
   GEMINI_API_KEY      google/*
-  OPENAI_API_KEY      openai/*
-  OPENROUTER_API_KEY  openrouter/*
-  XAI_API_KEY         xai/*
-  MISTRAL_API_KEY     mistral/*`;
-
-const API_KEY_ENV: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  google: "GEMINI_API_KEY",
-  openai: "OPENAI_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-  xai: "XAI_API_KEY",
-  mistral: "MISTRAL_API_KEY",
-};
-
-function findModel(spec: string) {
-  for (const provider of getProviders()) {
-    if (spec.startsWith(`${provider}/`)) {
-      const model = getModel(provider, spec.slice(provider.length + 1));
-      if (model) return model;
-    }
-  }
-  for (const provider of ["openrouter", ...getProviders()]) {
-    const model = getModel(provider, spec);
-    if (model) return model;
-  }
-  return undefined;
-}
+  OPENAI_API_KEY      openai/*`;
 
 interface Args {
   prompt?: string;
@@ -120,7 +97,6 @@ async function main(): Promise<number> {
 
   if (args.model) {
     // accepts "<provider>/<id>" (e.g. anthropic/claude-haiku-4-5-20251001) or a bare id
-    // (looked up under openrouter first, then the other providers)
     const model = findModel(args.model);
     if (!model) {
       const known = getProviders()
