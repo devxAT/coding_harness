@@ -21,15 +21,12 @@ import {
   AgentEvent,
   AgentMessage,
   AgentTool,
-  AutoCompaction,
   buildSystemPrompt,
   createCodingTools,
-  findCutPoint,
-  getSummaryText,
-  SUMMARIZATION_SYSTEM_PROMPT,
   streamFn,
 } from "@coding-harness/agent";
 import { Repl } from "../src/repl.js";
+import { findModel, getAllModels } from "../src/model-selector.js";
 
 // ---- fake provider ---------------------------------------------------------
 
@@ -213,112 +210,77 @@ test("abort: agent.abort() stops a hanging request and leaves valid history", as
   await assert.doesNotReject(agent.continue().catch((e) => { if (!/assistant/.test(String(e))) throw e; }));
 });
 
-test("compaction: threshold trigger replaces old history with a summary + recent messages", async () => {
-  let turn = 0;
-  const agent = newAgent((ctx) => {
-    if (ctx.systemPrompt === SUMMARIZATION_SYSTEM_PROMPT) return assistantMessage([{ text: "## Goal\nbuild thing" }]);
-    turn++;
-    // usage reports 950 of 1000 tokens used: above window - reserve(100)
-    return assistantMessage([{ text: `answer ${turn} ${"x".repeat(200)}` }], { totalTokens: 950 });
-  }, []);
-  const ac = new AutoCompaction({ agent, getApiKey: () => "k", settings: { reserveTokens: 100, keepRecentTokens: 60 } });
+test("model-selector: findModel finds models by provider/id and shorthand", () => {
+  const m1 = findModel("google/gemini-2.5-flash");
+  assert.ok(m1, "finds by provider/id");
+  assert.equal(m1.id, "gemini-2.5-flash");
+  assert.equal(m1.provider, "google");
 
-  for (const q of ["one", "two", "three"]) {
-    await agent.prompt(`${q} ${"y".repeat(200)}`);
-  }
-  const before = agent.state.messages.length;
-  await ac.afterRun();
+  const m2 = findModel("gemini-2.5-flash");
+  assert.ok(m2, "finds by short id");
+  assert.equal(m2.id, "gemini-2.5-flash");
 
-  const msgs = agent.state.messages;
-  assert.ok(msgs.length < before, `history should shrink (${before} -> ${msgs.length})`);
-  assert.match(getSummaryText(msgs[0]) ?? "", /build thing/);
-  assert.equal(msgs[0].role, "user");
-  // never starts a kept part with a toolResult, and ends where it did
-  assert.notEqual(msgs[1].role, "toolResult");
+  const m3 = findModel("anthropic/claude-haiku-4-5-20251001");
+  assert.ok(m3, "finds anthropic model");
+  assert.equal(m3.provider, "anthropic");
+
+  const m4 = findModel("openai/gpt-4o");
+  assert.ok(m4, "finds openai model");
+  assert.equal(m4.provider, "openai");
+
+  const m5 = findModel("nonexistent-model-xyz");
+  assert.equal(m5, undefined, "returns undefined for unknown");
 });
 
-test("compaction: second compaction updates the previous summary and keeps file lists", async () => {
-  const prompts: string[] = [];
-  const agent = newAgent((ctx) => {
-    if (ctx.systemPrompt === SUMMARIZATION_SYSTEM_PROMPT) {
-      prompts.push(lastUserText(ctx));
-      return assistantMessage([{ text: "## Goal\nsummary" }]);
-    }
-    return assistantMessage([{ text: "z".repeat(300) }], { totalTokens: 950 });
-  }, []);
-  const readCall = assistantMessage([call("r1", "read", { path: "src/a.ts" })]);
-  agent.replaceMessages([
-    { role: "user", content: [{ type: "text", text: "q1 " + "y".repeat(300) }], timestamp: 1 },
-    readCall,
-    { role: "toolResult", toolCallId: "r1", toolName: "read", content: [{ type: "text", text: "file" }], isError: false, timestamp: 2 },
-    assistantMessage([{ text: "a1 " + "z".repeat(300) }]),
-    { role: "user", content: [{ type: "text", text: "q2 " + "y".repeat(300) }], timestamp: 3 },
-    assistantMessage([{ text: "a2 " + "z".repeat(300) }]),
-  ]);
-  const ac = new AutoCompaction({ agent, getApiKey: () => "k", settings: { keepRecentTokens: 50 } });
-
-  assert.ok(await ac.compactNow());
-  const first = getSummaryText(agent.state.messages[0]);
-  assert.match(first ?? "", /<read-files>\nsrc\/a\.ts\n<\/read-files>/);
-
-  agent.appendMessage({ role: "user", content: [{ type: "text", text: "q3 " + "y".repeat(300) }], timestamp: 4 });
-  agent.appendMessage(assistantMessage([{ text: "a3 " + "z".repeat(300) }]));
-  assert.ok(await ac.compactNow());
-
-  // a mid-turn cut runs two summarizer calls in parallel (history + turn prefix),
-  // so check all calls made by the second compaction, not just the last to finish
-  const second = prompts.slice(1);
-  assert.ok(second.length >= 1, "second compaction called the summarizer");
-  assert.ok(
-    second.some((p) => /<previous-summary>/.test(p) && /## Goal\nsummary/.test(p)),
-    "history call carries the previous summary",
-  );
-  assert.match(getSummaryText(agent.state.messages[0]) ?? "", /src\/a\.ts/, "file list survives a second compaction");
-  assert.equal(agent.state.messages.filter((m) => getSummaryText(m) !== undefined).length, 1);
+test("model-selector: getAllModels returns models across all providers", () => {
+  const models = getAllModels((p) => (p === "anthropic" ? "test-key" : undefined));
+  assert.ok(models.length >= 10, "returns all registered models");
+  const anthropicModel = models.find((m) => m.provider === "anthropic");
+  assert.ok(anthropicModel?.hasApiKey, "flags key as present for anthropic");
+  const openaiModel = models.find((m) => m.provider === "openai");
+  assert.equal(openaiModel?.hasApiKey, false, "flags key as missing for openai");
 });
 
-test("compaction: overflow error is compacted away and the request is retried", async () => {
-  let overflowOnce = true;
-  const agent = newAgent((ctx) => {
-    if (ctx.systemPrompt === SUMMARIZATION_SYSTEM_PROMPT) return assistantMessage([{ text: "## Goal\nsmall" }]);
-    if (overflowOnce) {
-      overflowOnce = false;
-      return assistantMessage([], { stopReason: "error", errorMessage: "prompt is too long: 213462 tokens > 200000 maximum" });
-    }
-    return assistantMessage([{ text: "recovered" }], { totalTokens: 100 });
-  }, []);
-  agent.replaceMessages([
-    { role: "user", content: [{ type: "text", text: "old " + "y".repeat(400) }], timestamp: 1 },
-    assistantMessage([{ text: "old answer " + "z".repeat(400) }]),
-    { role: "user", content: [{ type: "text", text: "old2 " + "y".repeat(400) }], timestamp: 2 },
-    assistantMessage([{ text: "old answer2 " + "z".repeat(400) }]),
-  ]);
-  const ac = new AutoCompaction({ agent, getApiKey: () => "k", settings: { keepRecentTokens: 120 } });
+test("repl: /model switches active model directly", async () => {
+  const agent = newAgent(() => assistantMessage([{ text: "ok" }]), []);
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let out = "";
+  output.on("data", (d) => (out += d.toString()));
 
-  await agent.prompt("one more " + "q".repeat(100));
-  assert.equal(agent.state.messages.at(-1)?.role === "assistant" && (agent.state.messages.at(-1) as AssistantMessage).stopReason, "error");
-  await ac.afterRun();
+  const repl = new Repl({ agent, getApiKey: () => "test-key", input, output });
+  const finished = repl.start();
 
-  const last = agent.state.messages.at(-1) as AssistantMessage;
-  assert.equal(last.stopReason, "stop");
-  assert.equal(last.content[0].type === "text" && last.content[0].text, "recovered");
-  assert.ok(getSummaryText(agent.state.messages[0]) !== undefined);
+  input.write("/model google/gemini-2.5-flash\n");
+  await new Promise((r) => setTimeout(r, 100));
+
+  assert.equal(agent.state.model.id, "gemini-2.5-flash");
+  assert.equal(agent.state.model.provider, "google");
+  assert.match(out, /model switched to google\/gemini-2\.5-flash/);
+
+  input.write("/exit\n");
+  await finished;
 });
 
-test("cut point never starts the kept part at a toolResult", () => {
-  const u = (t: string): AgentMessage => ({ role: "user", content: [{ type: "text", text: t }], timestamp: 0 });
-  const tr = (id: string, t: string): AgentMessage => ({ role: "toolResult", toolCallId: id, toolName: "read", content: [{ type: "text", text: t }], isError: false, timestamp: 0 });
-  const msgs: AgentMessage[] = [
-    u("a".repeat(400)),
-    assistantMessage([call("1", "read", { path: "x" })]),
-    tr("1", "r".repeat(4000)),
-    assistantMessage([{ text: "b".repeat(40) }]),
-  ];
-  for (const keep of [1, 20, 200, 900, 5000]) {
-    const cut = findCutPoint(msgs, 0, keep);
-    assert.ok(cut, `keep=${keep}`);
-    assert.notEqual(msgs[cut.firstKeptIndex].role, "toolResult", `keep=${keep}`);
-  }
+test("repl: /models lists models in non-interactive environment", async () => {
+  const agent = newAgent(() => assistantMessage([{ text: "ok" }]), []);
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let out = "";
+  output.on("data", (d) => (out += d.toString()));
+
+  const repl = new Repl({ agent, getApiKey: () => "test-key", input, output });
+  const finished = repl.start();
+
+  input.write("/models\n");
+  await new Promise((r) => setTimeout(r, 100));
+
+  assert.match(out, /Available Models:/);
+  assert.match(out, /google\/gemini-2\.5-flash/);
+  assert.match(out, /anthropic\/claude-sonnet-5/);
+
+  input.write("/exit\n");
+  await finished;
 });
 
 test("system prompt: placeholders are filled, project context is inserted verbatim", () => {

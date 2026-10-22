@@ -4,6 +4,11 @@ import {
   Agent,
   AgentEvent,
 } from "@coding-harness/agent";
+import {
+  API_KEY_ENV,
+  findModel,
+  selectModelInteractive,
+} from "./model-selector.js";
 
 export interface ReplOptions {
   agent: Agent;
@@ -51,6 +56,7 @@ function resultText(result: unknown): string {
  */
 export class Repl {
   private agent: Agent;
+  private getApiKey: (provider: string) => string | undefined;
   private input: Readable;
   private output: Writable;
   private color: boolean;
@@ -69,6 +75,7 @@ export class Repl {
 
   constructor(options: ReplOptions) {
     this.agent = options.agent;
+    this.getApiKey = options.getApiKey;
     this.input = options.input ?? process.stdin;
     this.output = options.output ?? process.stdout;
     this.color = Boolean((this.output as { isTTY?: boolean }).isTTY);
@@ -186,6 +193,63 @@ export class Repl {
     return true;
   }
 
+  private async handleModelCommand(line: string): Promise<void> {
+    const parts = line.trim().split(/\s+/);
+    const arg = parts.slice(1).join(" ").trim();
+
+    if (arg) {
+      const model = findModel(arg);
+      if (!model) {
+        this.writeLine(
+          this.red(`Unknown model "${arg}". Type /models to browse available models.`),
+        );
+        return;
+      }
+      this.agent.setModel(model);
+      this.writeLine(
+        this.dim(`[model switched to ${model.provider}/${model.id}]`),
+      );
+      if (!this.getApiKey(model.provider)) {
+        const envName = API_KEY_ENV[model.provider] ?? "API key";
+        this.writeLine(
+          this.red(`Warning: ${envName} is not set (needed for ${model.provider})`),
+        );
+      }
+      return;
+    }
+
+    this.rl?.pause();
+    try {
+      const selected = await selectModelInteractive({
+        input: this.input,
+        output: this.output,
+        getApiKey: this.getApiKey,
+        currentModel: this.agent.state.model,
+      });
+
+      if (selected) {
+        this.agent.setModel(selected);
+        this.writeLine(
+          this.dim(`[model switched to ${selected.provider}/${selected.id}]`),
+        );
+        if (!this.getApiKey(selected.provider)) {
+          const envName = API_KEY_ENV[selected.provider] ?? "API key";
+          this.writeLine(
+            this.red(
+              `Warning: ${envName} is not set (needed for ${selected.provider})`,
+            ),
+          );
+        }
+      } else {
+        this.writeLine(this.dim("[model selection cancelled]"));
+      }
+    } finally {
+      // Restore readline: resume its stream ownership, then redraw the prompt
+      this.rl?.resume();
+      if (!this.closed && !this.running) this.rl?.prompt();
+    }
+  }
+
   private async handleLine(line: string): Promise<void> {
     if (line === "/exit" || line === "/quit") {
       this.rl?.close();
@@ -194,6 +258,15 @@ export class Repl {
     if (line === "/reset") {
       this.agent.reset();
       this.writeLine(this.dim("[conversation cleared]"));
+      return;
+    }
+    if (
+      line === "/models" ||
+      line === "/model" ||
+      line.startsWith("/models ") ||
+      line.startsWith("/model ")
+    ) {
+      await this.handleModelCommand(line);
       return;
     }
     await this.runPrompt(line);

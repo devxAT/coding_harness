@@ -15,6 +15,7 @@ import {
   ImageContent,
   Message,
   ModelInfo,
+  OpenAICompat,
   StopReason,
   StreamFunction,
   StreamOptions,
@@ -37,7 +38,49 @@ export interface OpenAIOptions extends StreamOptions {
   toolChoice?: "auto" | "none" | "required" | { type: "function"; name: string };
 }
 
-const isOpenRouter = (model: ModelInfo) => model.baseUrl.includes("openrouter.ai");
+/**
+ * Derive per-vendor quirks from the model's baseUrl (or the explicit compat override on ModelInfo).
+ * Returns a fully-resolved Required<OpenAICompat> so callers never have to null-check.
+ */
+export function detectCompatFromUrl(model: ModelInfo): Required<OpenAICompat> {
+  // Explicit compat on the model takes precedence for every field that is set.
+  const override = model.compat ?? {};
+  const url = model.baseUrl;
+
+  const isOpenAI = url.includes("api.openai.com");
+  const isXAI = url.includes("api.x.ai");
+  const isMistral = url.includes("mistral.ai");
+
+  // Sensible defaults based on URL, then overlaid with any explicit override fields.
+  const defaults: Required<OpenAICompat> = {
+    supportsStore: !isXAI && !isMistral,
+    supportsDeveloperRole: isOpenAI,
+    supportsReasoningEffort: !isXAI,
+    maxTokensField: isOpenAI ? "max_completion_tokens" : "max_tokens",
+    requiresToolResultName: isMistral,
+    requiresMistralToolIds: isMistral,
+  };
+
+  return {
+    supportsStore: override.supportsStore ?? defaults.supportsStore,
+    supportsDeveloperRole: override.supportsDeveloperRole ?? defaults.supportsDeveloperRole,
+    supportsReasoningEffort: override.supportsReasoningEffort ?? defaults.supportsReasoningEffort,
+    maxTokensField: override.maxTokensField ?? defaults.maxTokensField,
+    requiresToolResultName: override.requiresToolResultName ?? defaults.requiresToolResultName,
+    requiresMistralToolIds: override.requiresMistralToolIds ?? defaults.requiresMistralToolIds,
+  };
+}
+
+/**
+ * Mistral requires tool call IDs to be exactly 9 alphanumeric characters.
+ * This function pads short IDs and truncates long ones.
+ */
+function normalizeMistralToolId(id: string, isMistral: boolean): string {
+  if (!isMistral) return id;
+  let clean = id.replace(/[^a-zA-Z0-9]/g, "");
+  if (clean.length < 9) clean = clean + "ABCDEFGHI".slice(0, 9 - clean.length);
+  return clean.slice(0, 9);
+}
 
 export const openaiStream: StreamFunction = (
   model: ModelInfo,
@@ -81,6 +124,7 @@ async function fetchStream(
     const client = new OpenAI({
       apiKey: options?.apiKey,
       baseURL: model.baseUrl,
+      defaultHeaders: model.headers,
     });
 
     const params = buildOpenAIParams(model, context, options);
@@ -271,37 +315,54 @@ export const buildOpenAIParams = (
   context: Context,
   options?: OpenAIOptions,
 ): ChatCompletionCreateParamsStreaming => {
+  const compat = detectCompatFromUrl(model);
   const transformedMessages = transformMessages(context.messages, model);
 
   const params: ChatCompletionCreateParamsStreaming = {
     model: model.id,
-    messages: convertMessages(model, context.systemPrompt, transformedMessages),
+    messages: convertMessages(model, context.systemPrompt, transformedMessages, compat),
     stream: true,
     stream_options: { include_usage: true },
   };
 
-  // OpenAI's newer models reject max_tokens; OpenAI-compatible servers mostly only know max_tokens
+  // Some providers reject `store: false`; skip it for those.
+  if (compat.supportsStore) {
+    (params as unknown as Record<string, unknown>).store = false;
+  }
+
+  // Route max-tokens field based on compat.
   const maxTokens = options?.maxTokens ?? model.maxTokens;
-  if (model.baseUrl.includes("api.openai.com")) {
+  if (compat.maxTokensField === "max_completion_tokens") {
     params.max_completion_tokens = maxTokens;
   } else {
     params.max_tokens = maxTokens;
   }
 
+  // When there are no current tools but the conversation history contains tool calls,
+  // some proxies (e.g. OpenRouter) require an explicit empty tools array.
   if (context.tools && context.tools.length > 0) {
     params.tools = convertTools(context.tools);
+  } else {
+    const hasToolHistory = context.messages.some(
+      (m) => m.role === "assistant" && m.content.some((b) => b.type === "toolCall"),
+    );
+    if (hasToolHistory) {
+      params.tools = [];
+    }
   }
 
   if (options?.temperature !== undefined) {
     params.temperature = options.temperature;
   }
 
-  if (model.reasoning && options?.resoning) {
-    if (isOpenRouter(model)) {
+  if (model.reasoning && options?.resoning && (options.resoning as string) !== "off") {
+    const isOpenRouter = model.baseUrl.includes("openrouter.ai");
+    if (isOpenRouter) {
+      // OpenRouter wraps reasoning under a nested object.
       (params as unknown as Record<string, unknown>).reasoning = {
         effort: options.resoning,
       };
-    } else {
+    } else if (compat.supportsReasoningEffort) {
       params.reasoning_effort = options.resoning;
     }
   }
@@ -344,12 +405,13 @@ function convertMessages(
   model: ModelInfo,
   systemPrompt: string | undefined,
   transformedMessages: Message[],
+  compat: Required<OpenAICompat>,
 ): ChatCompletionMessageParam[] {
   const params: ChatCompletionMessageParam[] = [];
 
   if (systemPrompt) {
-    // reasoning models take "developer", everything else (and compat servers) "system"
-    const useDeveloper = model.reasoning && model.baseUrl.includes("api.openai.com");
+    // Reasoning models on api.openai.com take "developer"; compat servers use "system".
+    const useDeveloper = model.reasoning && compat.supportsDeveloperRole;
     params.push({
       role: useDeveloper ? "developer" : "system",
       content: sanitizeSurrogates(systemPrompt),
@@ -377,11 +439,12 @@ function convertMessages(
 
       const assistant: ChatCompletionAssistantMessageParam = {
         role: "assistant",
-        content: text.length > 0 ? sanitizeSurrogates(text) : null,
+        // Mistral rejects `content: null` when tool_calls are present; use "" instead.
+        content: text.length > 0 ? sanitizeSurrogates(text) : compat.requiresMistralToolIds ? "" : null,
       };
       if (toolCalls.length > 0) {
         assistant.tool_calls = toolCalls.map((tc) => ({
-          id: tc.id,
+          id: normalizeMistralToolId(tc.id, compat.requiresMistralToolIds),
           type: "function" as const,
           function: { name: tc.name, arguments: JSON.stringify(tc.arguments ?? {}) },
         }));
@@ -392,11 +455,16 @@ function convertMessages(
       const text = result.content
         .map((c) => (c.type === "text" ? c.text : "(image omitted)"))
         .join("\n");
-      params.push({
+      const toolResultMsg: ChatCompletionMessageParam = {
         role: "tool",
-        tool_call_id: result.toolCallId,
+        tool_call_id: normalizeMistralToolId(result.toolCallId, compat.requiresMistralToolIds),
         content: sanitizeSurrogates(text.length > 0 ? text : "(no output)"),
-      });
+      };
+      // Mistral requires a `name` field on tool result messages.
+      if (compat.requiresToolResultName) {
+        (toolResultMsg as unknown as Record<string, unknown>).name = result.toolName;
+      }
+      params.push(toolResultMsg);
     }
   }
 
