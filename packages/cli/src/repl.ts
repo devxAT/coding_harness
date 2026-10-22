@@ -11,7 +11,8 @@ import {
   selectModelInteractive,
 } from "./model-selector.js";
 import { AuthStorage } from "./auth-storage.js";
-import { isInteractive, readSecretTTY } from "./secret-input.js";
+import { readSecretTTY } from "./secret-input.js";
+import { isInteractive, selectFromList } from "./select-list.js";
 
 type LoginProvider = (typeof LOGIN_PROVIDERS)[number];
 
@@ -177,8 +178,29 @@ export class Repl {
 
   private noModelNotice() {
     this.writeLine(
-      this.dim("No model selected. Type /models to pick one, or /model <provider/id>"),
+      this.dim(
+        LOGIN_PROVIDERS.some((p) => this.getApiKey(p.id))
+          ? "No model selected. Type /models to pick one, or /model <provider/id>"
+          : "No model selected. Run /login to add an API key, then /models to pick a model",
+      ),
     );
+  }
+
+  /**
+   * Hand the raw input to a picker / key reader. readline stays attached to the
+   * input through its "keypress" listener even while paused, and would echo every
+   * key into its own line; detach it for the duration.
+   */
+  private async withRawInput<T>(fn: () => Promise<T>): Promise<T> {
+    const keypress = this.input.listeners("keypress") as ((...args: unknown[]) => void)[];
+    this.input.removeAllListeners("keypress");
+    this.rl?.pause();
+    try {
+      return await fn();
+    } finally {
+      for (const listener of keypress) this.input.on("keypress", listener);
+      this.rl?.resume();
+    }
   }
 
   /** Returns true when a key is missing (and says so) */
@@ -236,36 +258,31 @@ export class Repl {
         );
         return;
       }
+      // only models with an API key can be selected
+      if (this.warnIfNoKey(model.provider)) return;
       this.agent.setModel(model);
       this.writeLine(
         this.dim(`[model switched to ${model.provider}/${model.id}]`),
       );
-      this.warnIfNoKey(model.provider);
       return;
     }
 
-    this.rl?.pause();
-    try {
-      const selected = await selectModelInteractive({
+    const selected = await this.withRawInput(() =>
+      selectModelInteractive({
         input: this.input,
         output: this.output,
         getApiKey: this.getApiKey,
         currentModel: this.agent.state.model,
-      });
+      }),
+    );
 
-      if (selected) {
-        this.agent.setModel(selected);
-        this.writeLine(
-          this.dim(`[model switched to ${selected.provider}/${selected.id}]`),
-        );
-        this.warnIfNoKey(selected.provider);
-      } else {
-        this.writeLine(this.dim("[model selection cancelled]"));
-      }
-    } finally {
-      // Restore readline: resume its stream ownership, then redraw the prompt
-      this.rl?.resume();
-      if (!this.closed && !this.running) this.rl?.prompt();
+    if (selected) {
+      this.agent.setModel(selected);
+      this.writeLine(
+        this.dim(`[model switched to ${selected.provider}/${selected.id}]`),
+      );
+    } else if (isInteractive(this.input, this.output)) {
+      this.writeLine(this.dim("[model selection cancelled]"));
     }
   }
 
@@ -277,25 +294,44 @@ export class Repl {
     });
   }
 
-  /** Resolve a provider from an argument, or ask for it by number */
+  /** Resolve a provider from an argument, or let the user pick one from a list */
   private async pickProvider(
     arg: string,
     choices: LoginProvider[],
+    command: string,
   ): Promise<LoginProvider | undefined> {
-    const match = (s: string) => {
-      const v = s.trim().toLowerCase();
-      return choices.find(
-        (p, i) => p.id === v || p.label.toLowerCase() === v || String(i + 1) === v,
-      );
-    };
     if (arg) {
-      const found = match(arg);
+      const v = arg.trim().toLowerCase();
+      const found = choices.find(
+        (p) => p.id === v || p.label.toLowerCase() === v,
+      );
       if (!found) this.writeLine(this.red(`Unknown provider "${arg}"`));
       return found;
     }
-    this.writeLine("Select a provider:");
-    choices.forEach((p, i) => this.writeLine(`  ${i + 1}. ${p.label}`));
-    return match(await this.ask(`Provider [1-${choices.length}]: `));
+
+    if (!isInteractive(this.input, this.output)) {
+      this.writeLine(
+        `Usage: ${command} <provider>  (${choices.map((p) => p.id).join(", ")})`,
+      );
+      return undefined;
+    }
+
+    const picked = await this.withRawInput(() =>
+      selectFromList({
+        input: this.input,
+        output: this.output,
+        title: "Select Provider",
+        items: choices,
+        renderItem: (p, selected) => {
+          const name = selected ? `\x1b[1m\x1b[36m${p.label}\x1b[0m` : p.label;
+          const keyTag = this.getApiKey(p.id) ? ` \x1b[32m✓ key set\x1b[0m` : "";
+          return `${name} \x1b[2m(${p.id})\x1b[0m${keyTag}`;
+        },
+        searchText: (p) => `${p.id} ${p.label}`,
+        noun: "providers",
+      }),
+    );
+    return picked ?? undefined;
   }
 
   private async handleLoginCommand(arg: string): Promise<void> {
@@ -303,31 +339,27 @@ export class Repl {
       this.writeLine(this.red("/login is not available"));
       return;
     }
-    const provider = await this.pickProvider(arg, LOGIN_PROVIDERS);
+    const provider = await this.pickProvider(arg, LOGIN_PROVIDERS, "/login");
     if (!provider) {
-      this.writeLine(this.dim("[login cancelled]"));
+      if (arg || isInteractive(this.input, this.output)) {
+        this.writeLine(this.dim("[login cancelled]"));
+      }
       return;
     }
 
     const label = `${provider.label} API key: `;
-    let key: string | null;
-    if (isInteractive(this.input, this.output)) {
-      this.rl?.pause();
-      try {
-        key = await readSecretTTY(this.input, this.output, label);
-      } finally {
-        this.rl?.resume();
-      }
-    } else {
-      key = await this.ask(label);
-    }
+    const key = isInteractive(this.input, this.output)
+      ? await this.withRawInput(() =>
+          readSecretTTY(this.input, this.output, label),
+        )
+      : await this.ask(label);
 
-    key = key?.trim() ?? "";
-    if (!key) {
+    const trimmed = key?.trim() ?? "";
+    if (!trimmed) {
       this.writeLine(this.dim("[login cancelled]"));
       return;
     }
-    this.auth.setApiKey(provider.id, key);
+    this.auth.setApiKey(provider.id, trimmed);
     this.writeLine(
       this.dim(`[${provider.label} API key saved to ${this.auth.getPath()}]`),
     );
@@ -344,9 +376,11 @@ export class Repl {
       this.writeLine(this.dim("[no saved API keys]"));
       return;
     }
-    const provider = await this.pickProvider(arg, choices);
+    const provider = await this.pickProvider(arg, choices, "/logout");
     if (!provider) {
-      this.writeLine(this.dim("[logout cancelled]"));
+      if (arg || isInteractive(this.input, this.output)) {
+        this.writeLine(this.dim("[logout cancelled]"));
+      }
       return;
     }
     this.auth.remove(provider.id);

@@ -4,8 +4,9 @@ import type { Readable, Writable } from "node:stream";
  * Read one line from a raw-mode TTY, echoing "*" per character.
  * Resolves null on Esc / Ctrl+C.
  *
- * Same contract as selectModelInteractive: the caller pauses readline before
- * and resumes it after; the stream is left paused and out of raw mode.
+ * Same contract as selectFromList: the caller detaches readline first
+ * (Repl.withRawInput), otherwise readline echoes every key as well.
+ * The stream is left paused and out of raw mode.
  */
 export function readSecretTTY(
   input: Readable,
@@ -51,13 +52,4 @@ export function readSecretTTY(
 
     stdin.on("data", onData);
   });
-}
-
-export function isInteractive(input: Readable, output: Writable): boolean {
-  const stdin = input as NodeJS.ReadStream;
-  return Boolean(
-    stdin.isTTY &&
-      typeof stdin.setRawMode === "function" &&
-      (output as NodeJS.WriteStream).isTTY,
-  );
 }

@@ -212,20 +212,20 @@ test("abort: agent.abort() stops a hanging request and leaves valid history", as
 });
 
 test("model-selector: findModel finds models by provider/id and shorthand", () => {
-  const m1 = findModel("google/gemini-2.5-flash");
+  const m1 = findModel("google/gemini-3.8-flash");
   assert.ok(m1, "finds by provider/id");
-  assert.equal(m1.id, "gemini-2.5-flash");
+  assert.equal(m1.id, "gemini-3.8-flash");
   assert.equal(m1.provider, "google");
 
-  const m2 = findModel("gemini-2.5-flash");
+  const m2 = findModel("gemini-3.8-flash");
   assert.ok(m2, "finds by short id");
-  assert.equal(m2.id, "gemini-2.5-flash");
+  assert.equal(m2.id, "gemini-3.8-flash");
 
   const m3 = findModel("anthropic/claude-haiku-4-5-20251001");
   assert.ok(m3, "finds anthropic model");
   assert.equal(m3.provider, "anthropic");
 
-  const m4 = findModel("openai/gpt-4o");
+  const m4 = findModel("openai/gpt-5-2025-08-07");
   assert.ok(m4, "finds openai model");
   assert.equal(m4.provider, "openai");
 
@@ -252,12 +252,12 @@ test("repl: /model switches active model directly", async () => {
   const repl = new Repl({ agent, getApiKey: () => "test-key", input, output });
   const finished = repl.start();
 
-  input.write("/model google/gemini-2.5-flash\n");
+  input.write("/model google/gemini-3.8-flash\n");
   await new Promise((r) => setTimeout(r, 100));
 
-  assert.equal(agent.state.model?.id, "gemini-2.5-flash");
+  assert.equal(agent.state.model?.id, "gemini-3.8-flash");
   assert.equal(agent.state.model?.provider, "google");
-  assert.match(out, /model switched to google\/gemini-2\.5-flash/);
+  assert.match(out, /model switched to google\/gemini-3\.8-flash/);
 
   input.write("/exit\n");
   await finished;
@@ -332,11 +332,10 @@ test("repl: /login asks for provider and key, saves it, /logout removes it", asy
     await step("hello");
     assert.equal(calls, 0, "no key, no request");
 
+    // no TTY, so no picker: a bare /login explains the argument form
     await step("/login");
-    assert.match(out, /1\. Anthropic/);
-    assert.match(out, /2\. Google Gemini/);
-    assert.match(out, /3\. OpenAI/);
-    await step("1");
+    assert.match(out, /Usage: \/login <provider>  \(anthropic, google, openai\)/);
+    await step("/login anthropic");
     assert.match(out, /Anthropic API key:/);
     await step("sk-test-123");
     assert.match(out, /API key saved/);
@@ -364,22 +363,92 @@ test("repl: /login asks for provider and key, saves it, /logout removes it", asy
   }
 });
 
-test("repl: /models lists models in non-interactive environment", async () => {
+test("repl (tty): /login picks provider from a list, key is never echoed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ch-auth-"));
+  try {
+    const auth = new AuthStorage(join(dir, "auth.json"));
+    const agent = newAgent(() => assistantMessage([{ text: "ok" }]), []);
+
+    // fake terminal: readline runs in terminal mode and attaches its keypress listener
+    const input = Object.assign(new PassThrough(), {
+      isTTY: true,
+      isRaw: false,
+      setRawMode(mode: boolean) { this.isRaw = mode; return this; },
+    });
+    const output = Object.assign(new PassThrough(), { isTTY: true, columns: 100, rows: 30 });
+    let out = "";
+    output.on("data", (d) => (out += d.toString()));
+
+    const repl = new Repl({ agent, getApiKey: (p) => auth.getApiKey(p), auth, input, output });
+    const finished = repl.start();
+    const send = async (s: string) => {
+      input.write(s);
+      await new Promise((r) => setTimeout(r, 50));
+    };
+
+    await send("/login\r");
+    assert.match(out, /Select Provider/);
+    assert.match(out, /Google Gemini/);
+    await send("\x1b[B"); // down: Google Gemini
+    await send("\r");
+    assert.match(out, /Google Gemini API key:/);
+    await send("sk-secret-value");
+    await send("\r");
+
+    assert.equal(auth.getApiKey("google"), "sk-secret-value");
+    assert.doesNotMatch(out, /sk-secret/, "key must not be echoed by readline or the reader");
+    assert.match(out, /\*{15}/);
+
+    await send("/exit\r");
+    await finished;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repl: /models lists only models whose provider has an API key", async () => {
   const agent = newAgent(() => assistantMessage([{ text: "ok" }]), []);
   const input = new PassThrough();
   const output = new PassThrough();
   let out = "";
   output.on("data", (d) => (out += d.toString()));
 
-  const repl = new Repl({ agent, getApiKey: () => "test-key", input, output });
+  // only google has a key
+  const getApiKey = (p: string) => (p === "google" ? "test-key" : undefined);
+  const repl = new Repl({ agent, getApiKey, input, output });
   const finished = repl.start();
 
   input.write("/models\n");
   await new Promise((r) => setTimeout(r, 100));
 
   assert.match(out, /Available Models:/);
-  assert.match(out, /google\/gemini-2\.5-flash/);
-  assert.match(out, /anthropic\/claude-sonnet-5/);
+  assert.match(out, /google\/gemini-3\.8-flash/);
+  assert.doesNotMatch(out, /anthropic\//, "providers without a key are hidden");
+  assert.doesNotMatch(out, /openai\//, "providers without a key are hidden");
+
+  input.write("/model anthropic/claude-sonnet-5-5\n");
+  await new Promise((r) => setTimeout(r, 50));
+  assert.match(out, /No API key for anthropic/);
+  assert.notEqual(agent.state.model?.id, "claude-sonnet-5-5", "keyless model is not selected");
+
+  input.write("/exit\n");
+  await finished;
+});
+
+test("repl: /models with no API keys points to /login", async () => {
+  const agent = newAgent(() => assistantMessage([{ text: "ok" }]), []);
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let out = "";
+  output.on("data", (d) => (out += d.toString()));
+
+  const repl = new Repl({ agent, getApiKey: () => undefined, input, output });
+  const finished = repl.start();
+  input.write("/models\n");
+  await new Promise((r) => setTimeout(r, 50));
+
+  assert.match(out, /No models available: no API key is set\. Run \/login/);
+  assert.doesNotMatch(out, /Available Models:/);
 
   input.write("/exit\n");
   await finished;

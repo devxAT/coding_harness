@@ -46,8 +46,12 @@ they resolve through each package's `dist/`, so run `npm run build` after changi
 - `main.ts` argument parsing and wiring
 - `auth-storage.ts` `AuthStorage`: API keys per provider in `~/.coding-harness/auth.json`
   (`$CODING_HARNESS_DIR` overrides), falls back to env vars. Written by `/login`, removed by `/logout`
+- `select-list.ts` `selectFromList`: generic filterable arrow-key list (used for models and providers)
 - `secret-input.ts` masked key entry on a TTY (`/login` uses `rl.question` when not a TTY)
-- `model-selector.ts` `/models` picker, `findModel`, `API_KEY_ENV`, `LOGIN_PROVIDERS`
+- `model-selector.ts` `/models` picker (only models whose provider has a key), `findModel`,
+  `API_KEY_ENV`, `LOGIN_PROVIDERS`
+- Raw-mode UI (pickers, key entry) must run inside `Repl.withRawInput`: readline keeps its
+  `keypress` listener on stdin even when paused and would echo every key otherwise
 - `test/e2e.test.ts` scripted-provider tests
 
 ## Commands
