@@ -4,8 +4,8 @@ export const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 //cache prices are for 5m TTL
 export const ANTHROPIC_MODELS: ModelInfo[] = [
   {
-    id: "claude-fabel-5-1",
-    name: "Claude Fabel 5.1",
+    id: "claude-fable-5-1",
+    name: "Claude Fable 5.1",
     baseUrl: ANTHROPIC_BASE_URL,
     provider: "anthropic",
     input: ["text"],
