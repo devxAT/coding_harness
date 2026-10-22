@@ -85,8 +85,10 @@ compaction (Step 12).
 - Compaction token counts come from the last assistant message's usage; right after a compaction
   the next count is stale until the next reply
 - Thinking is never enabled: `Agent` sets `resoning` but the Anthropic provider reads `thinkingEnabled`
-- `Agent` default model is `claude-haiku-4-5-20251001`; the model table also has `claude-fabel-5-1`,
-  `claude-opus-5`, `claude-sonnet-5` ids that should be checked against real model ids
+- `Agent` has no default model (`state.model` is undefined until `setModel`); the CLI starts with
+  "No model selected" and the user picks one via `--model` / `/models` / `/model <id>`.
+  The model table has `claude-fabel-5-1`, `claude-opus-5`, `claude-sonnet-5` ids that should be
+  checked against real model ids
 - Stale compiled `.js` files are committed under `ai_providers/src` (`api/`, `index.js`, ...);
   `api/anthropic.ts` is a leftover duplicate of `providers/anthropic.ts`
 - `bash` tool: the `timeout` param is documented as milliseconds but multiplied by 1000 (so it acts

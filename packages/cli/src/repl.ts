@@ -166,8 +166,18 @@ export class Repl {
 
   // running prompt
 
+  private noModelNotice() {
+    this.writeLine(
+      this.dim("No model selected. Type /models to pick one, or /model <provider/id>"),
+    );
+  }
+
   /** Run one prompt to completion. Returns false if it ended in error or abort. */
   async runPrompt(text: string): Promise<boolean> {
+    if (!this.agent.state.model) {
+      this.noModelNotice();
+      return false;
+    }
     this.running = true;
     try {
       await this.agent.prompt(text);
@@ -308,6 +318,8 @@ export class Repl {
 
   /** Read lines until /exit, Ctrl+C Ctrl+C, or end of input */
   start(): Promise<void> {
+    if (!this.agent.state.model) this.noModelNotice();
+
     const rl = createInterface({
       input: this.input,
       output: this.output,

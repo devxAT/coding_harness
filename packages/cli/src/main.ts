@@ -1,9 +1,5 @@
 #!/usr/bin/env node
-import {
-  getModel,
-  getModels,
-  getProviders,
-} from "@coding-harness/ai-providers";
+import { getModels, getProviders } from "@coding-harness/ai-providers";
 import "dotenv/config";
 import {
   Agent,
@@ -30,7 +26,8 @@ In the session:
   /exit              quit
   Ctrl+C             abort the current run; press again to exit
 
-Default model is anthropic/claude-haiku-4-5-20251001.
+No model is selected at startup: pass --model, or pick one with /models in the session.
+--print requires --model.
 
 Required env vars by provider:
   ANTHROPIC_API_KEY   anthropic/*
@@ -76,6 +73,9 @@ async function main(): Promise<number> {
   if (args.print && !args.prompt) {
     throw new Error("--print needs a prompt");
   }
+  if (args.print && !args.model) {
+    throw new Error("--print needs --model");
+  }
 
   const getApiKey = (provider: string) =>
     process.env[API_KEY_ENV[provider] ?? ""];
@@ -104,14 +104,12 @@ async function main(): Promise<number> {
         .join(", ");
       throw new Error(`Unknown model "${args.model}". Known: ${known}`);
     }
+    if (!getApiKey(model.provider)) {
+      throw new Error(
+        `${API_KEY_ENV[model.provider] ?? "API key"} is not set (needed for ${model.provider})`,
+      );
+    }
     agent.setModel(model);
-  }
-
-  const model = agent.state.model;
-  if (!getApiKey(model.provider)) {
-    throw new Error(
-      `${API_KEY_ENV[model.provider] ?? "API key"} is not set (needed for ${model.provider})`,
-    );
   }
 
   const repl = new Repl({

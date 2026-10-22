@@ -1,5 +1,4 @@
 import {
-  getModel,
   Message,
   ModelInfo,
   ReasoningEffort,
@@ -63,7 +62,7 @@ function defaultConvertToLlm(messages: AgentMessage[]): Message[] {
 export class Agent {
   private _state: AgentState = {
     systemPrompt: "",
-    model: getModel("anthropic", "claude-haiku-4-5-20251001"),
+    model: undefined,
     thinkingLevel: "off",
     tools: [],
     messages: [],
@@ -215,7 +214,7 @@ export class Agent {
     }
 
     const model = this._state.model;
-    if (!model) throw new Error("No model provided");
+    if (!model) throw new Error("No model selected");
 
     let msgs: AgentMessage[];
 
@@ -261,7 +260,7 @@ export class Agent {
    */
   private async _runLoop(messages?: AgentMessage[]) {
     const model = this._state.model;
-    if (!model) throw new Error("No model configured");
+    if (!model) throw new Error("No model selected");
 
     this.runningPrompt = new Promise<void>((resolve) => {
       this.resolveRunningPrompt = resolve;

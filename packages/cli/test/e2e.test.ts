@@ -254,9 +254,45 @@ test("repl: /model switches active model directly", async () => {
   input.write("/model google/gemini-2.5-flash\n");
   await new Promise((r) => setTimeout(r, 100));
 
-  assert.equal(agent.state.model.id, "gemini-2.5-flash");
-  assert.equal(agent.state.model.provider, "google");
+  assert.equal(agent.state.model?.id, "gemini-2.5-flash");
+  assert.equal(agent.state.model?.provider, "google");
   assert.match(out, /model switched to google\/gemini-2\.5-flash/);
+
+  input.write("/exit\n");
+  await finished;
+});
+
+test("repl: starts with no model, refuses prompts until one is selected", async () => {
+  let calls = 0;
+  const agent = new Agent({
+    initialState: { systemPrompt: "sys", tools: [] },
+    streamFn: fakeStream(() => {
+      calls++;
+      return assistantMessage([{ text: "hi there" }]);
+    }),
+    getApiKey: () => "test-key",
+  });
+  assert.equal(agent.state.model, undefined);
+
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let out = "";
+  output.on("data", (d) => (out += d.toString()));
+
+  const repl = new Repl({ agent, getApiKey: () => "test-key", input, output });
+  const finished = repl.start();
+  assert.match(out, /No model selected/);
+
+  input.write("hello\n");
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(calls, 0);
+  assert.equal(agent.state.messages.length, 0);
+
+  input.write("/model anthropic/claude-haiku-4-5-20251001\n");
+  input.write("hello\n");
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(calls, 1);
+  assert.match(out, /hi there/);
 
   input.write("/exit\n");
   await finished;
