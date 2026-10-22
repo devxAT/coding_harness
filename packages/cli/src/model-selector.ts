@@ -13,6 +13,13 @@ export const API_KEY_ENV: Record<string, string> = {
   openai: "OPENAI_API_KEY",
 };
 
+/** providers that /login can store an API key for */
+export const LOGIN_PROVIDERS: { id: ProviderId; label: string }[] = [
+  { id: "anthropic", label: "Anthropic" },
+  { id: "google", label: "Google Gemini" },
+  { id: "openai", label: "OpenAI" },
+];
+
 export interface ModelItem {
   provider: ProviderId;
   id: string;

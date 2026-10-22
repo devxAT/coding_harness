@@ -43,7 +43,11 @@ they resolve through each package's `dist/`, so run `npm run build` after changi
 
 - `repl.ts` `Repl`: readline loop, event rendering, steering, Ctrl+C, `/compact` `/reset` `/exit`.
   Takes injectable `input` / `output` streams (used by the tests)
-- `main.ts` argument parsing and wiring. Needs `ANTHROPIC_API_KEY`
+- `main.ts` argument parsing and wiring
+- `auth-storage.ts` `AuthStorage`: API keys per provider in `~/.coding-harness/auth.json`
+  (`$CODING_HARNESS_DIR` overrides), falls back to env vars. Written by `/login`, removed by `/logout`
+- `secret-input.ts` masked key entry on a TTY (`/login` uses `rl.question` when not a TTY)
+- `model-selector.ts` `/models` picker, `findModel`, `API_KEY_ENV`, `LOGIN_PROVIDERS`
 - `test/e2e.test.ts` scripted-provider tests
 
 ## Commands

@@ -27,6 +27,7 @@ import {
 } from "@coding-harness/agent";
 import { Repl } from "../src/repl.js";
 import { findModel, getAllModels } from "../src/model-selector.js";
+import { AuthStorage } from "../src/auth-storage.js";
 
 // ---- fake provider ---------------------------------------------------------
 
@@ -296,6 +297,71 @@ test("repl: starts with no model, refuses prompts until one is selected", async 
 
   input.write("/exit\n");
   await finished;
+});
+
+test("repl: /login asks for provider and key, saves it, /logout removes it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ch-auth-"));
+  const savedEnv = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const authPath = join(dir, "auth.json");
+    const auth = new AuthStorage(authPath);
+    const getApiKey = (p: string) => auth.getApiKey(p);
+    let calls = 0;
+    const agent = new Agent({
+      initialState: { model: smallModel, systemPrompt: "sys", tools: [] },
+      streamFn: fakeStream(() => {
+        calls++;
+        return assistantMessage([{ text: "ok" }]);
+      }),
+      getApiKey,
+    });
+
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let out = "";
+    output.on("data", (d) => (out += d.toString()));
+    const repl = new Repl({ agent, getApiKey, auth, input, output });
+    const finished = repl.start();
+    const step = async (line: string) => {
+      input.write(`${line}\n`);
+      await new Promise((r) => setTimeout(r, 50));
+    };
+
+    assert.match(out, /No API key for anthropic/);
+    await step("hello");
+    assert.equal(calls, 0, "no key, no request");
+
+    await step("/login");
+    assert.match(out, /1\. Anthropic/);
+    assert.match(out, /2\. Google Gemini/);
+    assert.match(out, /3\. OpenAI/);
+    await step("1");
+    assert.match(out, /Anthropic API key:/);
+    await step("sk-test-123");
+    assert.match(out, /API key saved/);
+    assert.deepEqual(JSON.parse(readFileSync(authPath, "utf-8")), {
+      anthropic: { type: "api_key", key: "sk-test-123" },
+    });
+    assert.equal(new AuthStorage(authPath).getApiKey("anthropic"), "sk-test-123", "reloads from disk");
+
+    await step("hello");
+    assert.equal(calls, 1, "prompt runs once a key is saved");
+
+    await step("/login openai");
+    await step("sk-openai");
+    assert.equal(auth.getApiKey("openai"), "sk-openai");
+
+    await step("/logout anthropic");
+    assert.equal(auth.getApiKey("anthropic"), undefined);
+    assert.deepEqual(auth.list(), ["openai"]);
+
+    input.write("/exit\n");
+    await finished;
+  } finally {
+    if (savedEnv !== undefined) process.env.ANTHROPIC_API_KEY = savedEnv;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("repl: /models lists models in non-interactive environment", async () => {
