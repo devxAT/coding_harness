@@ -43,7 +43,15 @@ they resolve through each package's `dist/`, so run `npm run build` after changi
 
 - `repl.ts` `Repl`: readline loop, event rendering, steering, Ctrl+C, `/compact` `/reset` `/exit`.
   Takes injectable `input` / `output` streams (used by the tests)
-- `main.ts` argument parsing and wiring. Needs `ANTHROPIC_API_KEY`
+- `main.ts` argument parsing and wiring
+- `auth-storage.ts` `AuthStorage`: API keys per provider in `~/.coding-harness/auth.json`
+  (`$CODING_HARNESS_DIR` overrides), falls back to env vars. Written by `/login`, removed by `/logout`
+- `select-list.ts` `selectFromList`: generic filterable arrow-key list (used for models and providers)
+- `secret-input.ts` masked key entry on a TTY (`/login` uses `rl.question` when not a TTY)
+- `model-selector.ts` `/models` picker (only models whose provider has a key), `findModel`,
+  `API_KEY_ENV`, `LOGIN_PROVIDERS`
+- Raw-mode UI (pickers, key entry) must run inside `Repl.withRawInput`: readline keeps its
+  `keypress` listener on stdin even when paused and would echo every key otherwise
 - `test/e2e.test.ts` scripted-provider tests
 
 ## Commands
@@ -85,8 +93,10 @@ compaction (Step 12).
 - Compaction token counts come from the last assistant message's usage; right after a compaction
   the next count is stale until the next reply
 - Thinking is never enabled: `Agent` sets `resoning` but the Anthropic provider reads `thinkingEnabled`
-- `Agent` default model is `claude-haiku-4-5-20251001`; the model table also has `claude-fabel-5-1`,
-  `claude-opus-5`, `claude-sonnet-5` ids that should be checked against real model ids
+- `Agent` has no default model (`state.model` is undefined until `setModel`); the CLI starts with
+  "No model selected" and the user picks one via `--model` / `/models` / `/model <id>`.
+  The model table has `claude-fabel-5-1`, `claude-opus-5`, `claude-sonnet-5` ids that should be
+  checked against real model ids
 - Stale compiled `.js` files are committed under `ai_providers/src` (`api/`, `index.js`, ...);
   `api/anthropic.ts` is a leftover duplicate of `providers/anthropic.ts`
 - `bash` tool: the `timeout` param is documented as milliseconds but multiplied by 1000 (so it acts

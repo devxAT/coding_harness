@@ -214,7 +214,8 @@ export type AgentEvent =
 //agent state
 export interface AgentState {
   systemPrompt: string;
-  model: ModelInfo;
+  /** undefined until the user selects a model */
+  model?: ModelInfo;
   thinkingLevel: ThinkingLevel;
   tools: AgentTool<any>[];
   messages: AgentMessage[];

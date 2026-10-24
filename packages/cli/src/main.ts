@@ -1,9 +1,5 @@
 #!/usr/bin/env node
-import {
-  getModel,
-  getModels,
-  getProviders,
-} from "@coding-harness/ai-providers";
+import { getModels, getProviders } from "@coding-harness/ai-providers";
 import "dotenv/config";
 import {
   Agent,
@@ -13,6 +9,7 @@ import {
 } from "@coding-harness/agent";
 import { Repl } from "./repl.js";
 import { API_KEY_ENV, findModel } from "./model-selector.js";
+import { AuthStorage } from "./auth-storage.js";
 
 const HELP = `coding-harness [options] [prompt]
 
@@ -25,14 +22,18 @@ In the session:
   <text>             send a message; while the agent runs it steers the agent instead
   /models            browse and select a model interactively
   /model <id>        switch to a specific model directly
+  /login [provider]  save an API key (anthropic, google, openai)
+  /logout [provider] remove a saved API key
   /compact [focus]   compact the context now
   /reset             clear the conversation
   /exit              quit
   Ctrl+C             abort the current run; press again to exit
 
-Default model is anthropic/claude-haiku-4-5-20251001.
+No model is selected at startup: pass --model, or pick one with /models in the session.
+--print requires --model.
 
-Required env vars by provider:
+API keys: use /login (saved to ~/.coding-harness/auth.json, or $CODING_HARNESS_DIR/auth.json).
+Environment variables are used when no key is saved:
   ANTHROPIC_API_KEY   anthropic/*
   GEMINI_API_KEY      google/*
   OPENAI_API_KEY      openai/*`;
@@ -76,9 +77,12 @@ async function main(): Promise<number> {
   if (args.print && !args.prompt) {
     throw new Error("--print needs a prompt");
   }
+  if (args.print && !args.model) {
+    throw new Error("--print needs --model");
+  }
 
-  const getApiKey = (provider: string) =>
-    process.env[API_KEY_ENV[provider] ?? ""];
+  const auth = new AuthStorage();
+  const getApiKey = (provider: string) => auth.getApiKey(provider);
 
   const cwd = process.cwd();
   const tools = createCodingTools(cwd);
@@ -104,19 +108,19 @@ async function main(): Promise<number> {
         .join(", ");
       throw new Error(`Unknown model "${args.model}". Known: ${known}`);
     }
+    // interactive sessions can still /login, so only --print fails early
+    if (args.print && !getApiKey(model.provider)) {
+      throw new Error(
+        `No API key for ${model.provider}: run coding-harness and /login, or set ${API_KEY_ENV[model.provider] ?? "the API key"}`,
+      );
+    }
     agent.setModel(model);
-  }
-
-  const model = agent.state.model;
-  if (!getApiKey(model.provider)) {
-    throw new Error(
-      `${API_KEY_ENV[model.provider] ?? "API key"} is not set (needed for ${model.provider})`,
-    );
   }
 
   const repl = new Repl({
     agent,
     getApiKey,
+    auth,
   });
 
   if (args.print) {
